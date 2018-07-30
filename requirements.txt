@@ -1,0 +1,5 @@
+# These packages are only used for building and running tests,
+# not for using the client.
+
+pycodestyle==2.4.0
+pylint==1.9.3
