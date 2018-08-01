@@ -65,7 +65,7 @@ class ThreadedBenchmark(Benchmark):
             success = True
             try:
                 result = client.check_rate_limit(**self.rate_limit_params())
-            except Exception as e:
+            except Exception:
                 success = False
             end_time = time.time()
             if success:
