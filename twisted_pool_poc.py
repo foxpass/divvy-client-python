@@ -2,9 +2,9 @@ import random
 import string
 
 from twisted.internet import reactor
-from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
+from twisted.internet.address import IPv4Address
 
-from divvy.twisted_client import DivvyProtocol
+from divvy.twisted_pool import DivvyPool
 
 unique_ips = 160
 request_count = unique_ips * 5
@@ -36,24 +36,19 @@ def _cbDivvyError(*args, **kwargs):
         reactor.stop()
 
 
-def connectionMade(divvyClient):
-    # Get the current working directory
-    print("*** Connected to Divvy. Enqueueing {} checks.".format(request_count))
-    for i in range(request_count):
-        client_ip = random.choice(ip_addresses)
-        hit_args = {"type": "ldap_login", "ip": client_ip}
-        resp = divvyClient.checkRateLimit(**hit_args).addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
-
-
 def connectionFailed(f):
     print("*** connectionFailed:")
     print("   f = {}".format(f))
 
 
 def main():
-    point = TCP4ClientEndpoint(reactor, "52.41.9.85", 8321)
-    d = connectProtocol(point, DivvyProtocol())
-    d.addCallbacks(connectionMade, connectionFailed)
+    addr = IPv4Address('TCP', '52.41.9.85', 8321)
+    pool = DivvyPool(addr, maxClients=connections)
+    print("*** Initialized pool with {} connections. Enqueueing {} checks.".format(connections, request_count))
+    for i in range(request_count):
+        client_ip = random.choice(ip_addresses)
+        hit_args = {"type": "ldap_login", "ip": client_ip}
+        resp = pool.checkRateLimit(**hit_args).addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
     reactor.run()
 
 
