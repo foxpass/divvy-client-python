@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='divvy-client-python',
-    version='1.0.0',
+    version='2.0.0',
     description="Python client to the Divvy quota service",
     url='https://github.com/foxpass/divvy-client-python/',
     author='Ryan Park',

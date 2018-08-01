@@ -9,6 +9,10 @@ class BuildTest(TestCase):
     def setUp(self):
         self.t = Translator()
 
+    def test_no_arguments(self):
+        output = self.t.build_hit()
+        self.assertEqual(b'HIT\n', output)
+
     def test_single_argument(self):
         output = self.t.build_hit(method="GET")
         self.assertEqual(b'HIT "method"="GET"\n', output)
