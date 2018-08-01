@@ -1,5 +1,11 @@
-# These packages are only used for building and running tests,
-# not for using the client.
+# Required for the Twisted client, obviously, but not for the procedural one.
+
+Twisted==18.7.0
+txconnpool==0.1.1
+
+
+# These packages are only used for building and running tests, not for using
+# either client.
 
 pycodestyle==2.4.0
 pylint==1.9.3
