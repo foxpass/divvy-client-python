@@ -14,15 +14,13 @@ DeferredRequest = namedtuple("DeferredRequest", ["kwargs", "deferred"])
 
 
 class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
-    # TODO handle timeouts
-    # TODO provide a method to close the connection
-
     delimiter = "\n"
 
-    def __init__(self, encoding='utf-8'):
+    def __init__(self, timeout=1.0, encoding='utf-8'):
         super(DivvyProtocol, self).__init__()
         self.queue = []
         self.request_in_transit = None
+        self.timeout = timeout
         self.translator = Translator(encoding)
 
     def checkRateLimit(self, **kwargs):
@@ -62,8 +60,11 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
         assert(self.request_in_transit is not None)
         line = self.translator.build_hit(**self.request_in_transit.kwargs)
         self.sendLine(line)
+        self.setTimeout(self.timeout)
 
     def lineReceived(self, line):
+        self.setTimeout(None)
+
         # we should never receive a line if there's no outstanding request
         assert(self.request_in_transit is not None)
 
