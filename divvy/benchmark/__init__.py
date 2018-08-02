@@ -70,7 +70,7 @@ class Benchmark(object):
 
     def rate_limit_params(self):
         client_ip = random.choice(self.ip_addresses)
-        return {"type": "ldap_login", "ip": client_ip}
+        return {"type": "benchmark", "ip": client_ip}
 
     def print_update(self):
         """When appropriate, prints a status update for the user."""

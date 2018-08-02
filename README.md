@@ -47,7 +47,15 @@ python -m unittest discover tests/
 
 ### Benchmarking
 
-Benchmark the client -- and your Divvy server -- with the included `benchmark.py`. Run with `-h` for comprehensive help.
+Benchmark the client -- and your Divvy server -- with the included `benchmark.py`. Run with `-h` for comprehensive help. You don't need any special Divvy configuration to run the benchmark, but if you want to simulate a real environment, add this stanza to Divvy's `config.ini`:
+
+```
+[type=benchmark ip=*]
+creditLimit = 5
+resetSeconds = 60
+actorField = ip
+comment = 'for benchmark.py, 5 requests per minute, by IP'
+```
 
 
 ## License and Copyright
