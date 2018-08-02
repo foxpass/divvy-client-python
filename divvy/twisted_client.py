@@ -33,7 +33,7 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
              **kwargs: Zero or more key-value pairs to specify the operation
                 being performed, which will be evaluated by the server against
                 its configuration.
-        
+
         Returns:
             twisted.internet.defer.Deferred: Callbacks will be executed when we
                 hear back from the server. Callbacks will receive a single
@@ -52,7 +52,7 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
 
     def _sendNextRequest(self):
         if self.request_in_transit is not None:
-            # can't send a request while we're waiting on a response for another
+            # can't send a request while waiting on a response for another
             return
         if len(self.queue) == 0:
             # can't send a request if there's nothing enqueued to send
@@ -64,7 +64,7 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
         self.sendLine(line)
 
     def lineReceived(self, line):
-        # we should never receive a line if we don't have an outstanding request
+        # we should never receive a line if there's no outstanding request
         assert(self.request_in_transit is not None)
 
         try:
