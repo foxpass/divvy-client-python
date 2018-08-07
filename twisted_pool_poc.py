@@ -63,7 +63,7 @@ def main():
         client_ip = random.choice(ip_addresses)
         hit_args = {"type": "benchmark", "ip": client_ip}
         d = pool.checkRateLimit(**hit_args)
-        d.addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
+        d.addCallbacks(_cbRateLimit, _cbDivvyError, callbackArgs=(client_ip, ))
     reactor.run()  # pylint: disable=no-member
 
 
