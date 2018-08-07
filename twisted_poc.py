@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 import random
 import string
 
@@ -48,8 +49,8 @@ def connectionMade(divvyClient):
     for i in range(request_count):
         client_ip = random.choice(ip_addresses)
         hit_args = {"type": "ldap_login", "ip": client_ip}
-        resp = divvyClient.checkRateLimit(**hit_args)
-        resp.addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
+        d = divvyClient.checkRateLimit(**hit_args)
+        d.addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
 
 
 def connectionFailed(f):
@@ -58,7 +59,13 @@ def connectionFailed(f):
 
 
 def main():
-    point = TCP4ClientEndpoint(reactor, "52.41.9.85", 8321)
+    parser = ArgumentParser()
+    parser.add_argument("hostname", type=str, help="Divvy server host")
+    parser.add_argument("port", nargs="?", default="8321", type=int,
+                        help="Divvy server port (default is 8321)")
+    args = parser.parse_args()
+
+    point = TCP4ClientEndpoint(reactor, args.hostname, args.port)
     d = connectProtocol(point, DivvyProtocol())
     d.addCallbacks(connectionMade, connectionFailed)
     reactor.run()  # pylint: disable=no-member

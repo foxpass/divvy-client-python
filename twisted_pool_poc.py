@@ -1,8 +1,9 @@
+from argparse import ArgumentParser
 import random
 import string
 
 from twisted.internet import reactor
-from twisted.internet.address import IPv4Address
+from twisted.internet.address import HostnameAddress
 
 from divvy.twisted_pool import DivvyPool
 
@@ -45,18 +46,24 @@ def connectionFailed(f):
 
 
 def main():
+    parser = ArgumentParser()
+    parser.add_argument("hostname", type=str, help="Divvy server host")
+    parser.add_argument("port", nargs="?", default="8321", type=int,
+                        help="Divvy server port (default is 8321)")
+    args = parser.parse_args()
+
     # Ten random IP addresses, to use for rate limiting examples
     ip_addresses = [_random_ip() for _ in range(unique_ips)]
 
-    addr = IPv4Address('TCP', '52.41.9.85', 8321)
+    addr = HostnameAddress(args.hostname, args.port)
     pool = DivvyPool(addr, maxClients=connections)
     print("*** Initialized pool with {} conns; enqueueing {} checks.".format(
         connections, request_count))
     for i in range(request_count):
         client_ip = random.choice(ip_addresses)
-        hit_args = {"type": "ldap_login", "ip": client_ip}
-        resp = pool.checkRateLimit(**hit_args)
-        resp.addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
+        hit_args = {"type": "benchmark", "ip": client_ip}
+        d = pool.checkRateLimit(**hit_args)
+        d.addCallback(_cbRateLimit, client_ip).addErrback(_cbDivvyError)
     reactor.run()  # pylint: disable=no-member
 
 
