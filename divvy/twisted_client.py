@@ -58,12 +58,18 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
     def lineReceived(self, line):
         self.setTimeout(None)
 
+        assert self.request
+
+        # we're now able to server another caller, so store
+        # the request before clearing it. once we call the callbacks
+        # another client might grab this object before we're done with it
+        request = self.request
+
+        self.request = None
+
         try:
             response = self.translator.parse_reply(line)
-            self.request.deferred.callback(response)
-        except ServerError as e:
-            self.request.deferred.errback(e)
-        finally:
-            # Always reset request_in_transit once we received a response
-            self.request = None
+            request.deferred.callback(response)
+        except Exception as e:
+            request.deferred.errback(e)
 

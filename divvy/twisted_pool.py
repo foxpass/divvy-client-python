@@ -12,8 +12,6 @@ class PooledDivvyProtocol(DivvyProtocol):
         """
         super(PooledDivvyProtocol, self).connectionMade()
 
-        self.factory.connectionPool.clientFree(self)
-
         if self.factory.deferred is not None:
             self.factory.deferred.callback(self)
             self.factory.deferred = None
