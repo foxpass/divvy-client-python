@@ -6,6 +6,8 @@ from twisted.internet.task import deferLater
 from twisted.protocols.basic import LineOnlyReceiver
 from twisted.protocols.policies import TimeoutMixin
 
+from twisted.internet.error import TimeoutError
+
 from divvy.exceptions import ServerError
 from divvy.protocol import Response, Translator
 
@@ -18,10 +20,13 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
 
     def __init__(self, timeout=1.0, encoding='utf-8'):
         super(DivvyProtocol, self).__init__()
-        self.queue = []
-        self.request_in_transit = None
+        self.request = None
         self.timeout = timeout
         self.translator = Translator(encoding)
+
+    def timeoutConnection(self):
+        TimeoutMixin.timeoutConnection(self)
+        self.request.deferred.errback(TimeoutError())
 
     def checkRateLimit(self, **kwargs):
         """
@@ -43,40 +48,22 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
                     next_reset_seconds: time, in seconds, until credit next
                         resets.
         """
-        r = DeferredRequest(kwargs=kwargs, deferred=Deferred())
-        self.queue.append(r)
-        deferLater(reactor, 0, self._sendNextRequest)
-        return r.deferred
-
-    def _sendNextRequest(self):
-        if self.request_in_transit is not None:
-            # can't send a request while waiting on a response for another
-            return
-        if len(self.queue) == 0:
-            # can't send a request if there's nothing enqueued to send
-            return
-
-        self.request_in_transit = self.queue.pop(0)
-        assert(self.request_in_transit is not None)
-        line = self.translator.build_hit(**self.request_in_transit.kwargs)
+        self.request = DeferredRequest(kwargs=kwargs, deferred=Deferred())
+        line = self.translator.build_hit(**self.request.kwargs)
         self.sendLine(line)
         self.setTimeout(self.timeout)
+
+        return self.request.deferred
 
     def lineReceived(self, line):
         self.setTimeout(None)
 
-        # we should never receive a line if there's no outstanding request
-        assert(self.request_in_transit is not None)
-
         try:
             response = self.translator.parse_reply(line)
-            self.request_in_transit.deferred.callback(response)
+            self.request.deferred.callback(response)
         except ServerError as e:
-            self.request_in_transit.errback(e)
+            self.request.deferred.errback(e)
         finally:
             # Always reset request_in_transit once we received a response
-            self.request_in_transit = None
+            self.request = None
 
-            # If there are more requests in the queue, send the next one
-            if len(self.queue) > 0:
-                deferLater(reactor, 0, self._sendNextRequest)
