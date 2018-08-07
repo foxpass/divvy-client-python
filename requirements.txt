@@ -1,7 +1,7 @@
 # Required for the Twisted client, obviously, but not for the procedural one.
 
 Twisted==18.7.0
-txconnpool==0.1.1
+git+https://github.com/foxpass/txconnpool@f7acfd9
 
 
 # These packages are only used for building and running tests, not for using
