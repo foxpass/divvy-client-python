@@ -2,11 +2,10 @@ from collections import namedtuple
 
 from twisted.internet import reactor
 from twisted.internet.defer import Deferred
+from twisted.internet.error import TimeoutError
 from twisted.internet.task import deferLater
 from twisted.protocols.basic import LineOnlyReceiver
 from twisted.protocols.policies import TimeoutMixin
-
-from twisted.internet.error import TimeoutError
 
 from divvy.exceptions import ServerError
 from divvy.protocol import Response, Translator
@@ -26,7 +25,10 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
 
     def timeoutConnection(self):
         TimeoutMixin.timeoutConnection(self)
-        self.request.deferred.errback(TimeoutError())
+        # self.request should be present whenever this method is called, but
+        # let's program defensively and double-check.
+        if self.request:
+            self.request.deferred.errback(TimeoutError())
 
     def checkRateLimit(self, **kwargs):
         """
