@@ -1,7 +1,7 @@
 import time
 
 from twisted.internet import reactor
-from twisted.internet.address import IPv4Address
+from twisted.internet.address import HostnameAddress
 from twisted.internet.task import deferLater
 
 from divvy import Response
@@ -15,7 +15,7 @@ class TwistedBenchmark(Benchmark):
         self.connection_count = args.threads
 
     def _start(self):
-        addr = IPv4Address('TCP', self.host, self.port)
+        addr = HostnameAddress(self.host, self.port)
         self.pool = DivvyPool(addr, maxClients=self.connection_count)
 
         if self.time_limit:
