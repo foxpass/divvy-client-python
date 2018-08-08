@@ -1,6 +1,7 @@
 # Divvy Python Client
 
 A client for the [Divvy rate limit server](https://github.com/button/divvy).
+Includes support for Twisted, if that's your jam.
 
 1. [Requirements](#requirements)
 2. [Usage](#usage)
@@ -11,13 +12,14 @@ A client for the [Divvy rate limit server](https://github.com/button/divvy).
 ## Requirements
 
 * Python version 2.7 or newer.
+* If using Twisted, you'll need the `Twisted` and `txconnpool` packages.
 
 
 ## Usage
 
-```python
-from __future__ import print_function
+Procedural client example:
 
+```python
 from divvy import DivvyClient
 
 client = DivvyClient("localhost", 8321)
@@ -28,12 +30,14 @@ else:
 	print("Request exceeds the rate limit: {}".format(resp))
 ```
 
+For the Twisted client, there's a single-connection example in [twisted_poc.py](twisted_poc.py), and a connection pooling example in [twisted_pool_poc.py](twisted_pool_poc.py).
+
 
 ## Building and testing
 
 ```bash
 pip install requirements.txt  # only needed in the build/test phase
-pycodestyle *.py divvy/*.py tests/*.py
+find . -name "*.py" | xargs pycodestyle
 pylint -E *.py divvy tests
 python -m unittest discover tests/
 ```
@@ -43,7 +47,15 @@ python -m unittest discover tests/
 
 ### Benchmarking
 
-Benchmark the client -- and your Divvy server -- with the included `benchmark.py`. Run with `-h` for comprehensive help.
+Benchmark the client -- and your Divvy server -- with the included `benchmark.py`. Run with `-h` for comprehensive help. You don't need any special Divvy configuration to run the benchmark, but if you want to simulate a real environment, add this stanza to Divvy's `config.ini`:
+
+```
+[type=benchmark ip=*]
+creditLimit = 5
+resetSeconds = 60
+actorField = ip
+comment = 'for benchmark.py, 5 requests per minute, by IP'
+```
 
 
 ## License and Copyright
