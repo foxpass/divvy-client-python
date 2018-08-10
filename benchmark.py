@@ -73,7 +73,7 @@ class Benchmark(object):
             start_time = time.time()
             success = True
             try:
-                result = client.hit(method="GET", path="/status")
+                result = client.check_rate_limit(method="GET", path="/status")
             except Exception:
                 success = False
             end_time = time.time()
