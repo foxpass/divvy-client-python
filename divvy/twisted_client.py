@@ -68,8 +68,10 @@ class DivvyRequest(object):
         d.addCallbacks(self._handleConnection, self.deferred.errback)
 
     def _handleConnection(self, protocol):
-        # once connected, issue the HIT over the wire, and have the response
-        # sent directly to the
+        # Once connected, issue the HIT over the wire, and have the response
+        # sent directly to the forehead.
+        #
+        # Errr, to the Deferred object that your client code will be accessing.
         return protocol.checkRateLimit(**self.hit_args).chainDeferred(
             self.deferred)
 
@@ -110,16 +112,14 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
         # we should never receive a line if there's no outstanding request
         assert self.deferred is not None
 
-        deferred = self.deferred
-        self.deferred = None
-
         try:
             response = self.translator.parse_reply(line)
-            deferred.callback(response)
+            self.deferred.callback(response)
         except Exception as e:
-            deferred.errback(e)
+            self.deferred.errback(e)
         finally:
             self.transport.loseConnection()
+            self.deferred = None
 
 
 __all__ = ["DivvyClient"]
