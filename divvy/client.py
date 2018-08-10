@@ -28,12 +28,23 @@ class DivvyClient(object):
             retry_on_timeout=retry_on_timeout
         )
 
-    def hit(self, **kwargs):
-        """Perform a check-and-decrement of quota. Zero or more key-value pairs
-        specify the operation being performed, and will be evaluated by the
-        server against its configuration."""
-        if len(kwargs) == 0:
-            raise InputError("hit() requires at least one keyword argument")
+    def check_rate_limit(self, **kwargs):
+        """
+        Perform a check-and-decrement of quota.
+
+        Args:
+             **kwargs: Zero or more key-value pairs to specify the operation
+                being performed, which will be evaluated by the server against
+                its configuration.
+
+        Returns:
+            divvy.Response, a namedtuple with these fields:
+                is_allowed: one of true, false, indicating whether quota was
+                    available.
+                current_credit: number of credit(s) available at the end of
+                    this command.
+                next_reset_seconds: time, in seconds, until credit next resets.
+        """
         cmd = self.translator.build_hit(**kwargs)
         self.connection.send(cmd)
 
