@@ -21,7 +21,7 @@ from __future__ import print_function
 from divvy import DivvyClient
 
 client = DivvyClient("localhost", 8321)
-resp = client.hit(method="GET", path="/pantry/cookies")
+resp = client.check_rate_limit(method="GET", path="/pantry/cookies")
 if resp.is_allowed:
 	print("Request is within the rate limit: {}".format(resp))
 else:
