@@ -1,6 +1,9 @@
 from collections import namedtuple
 import re
-from types import StringTypes
+try:
+    from types import StringTypes
+except ImportError as e:
+    StringTypes = str
 
 from divvy.exceptions import InputError, ParseError, ServerError
 

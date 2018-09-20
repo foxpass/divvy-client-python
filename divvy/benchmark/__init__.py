@@ -41,7 +41,7 @@ class Benchmark(object):
         def _random_ip():
             return '.'.join([str(random.randrange(256)) for _ in range(4)])
 
-        unique_ips = args.count / 10
+        unique_ips = int(args.count / 10)
         self.ip_addresses = [_random_ip() for _ in range(unique_ips)]
 
     def run(self):
@@ -65,7 +65,9 @@ class Benchmark(object):
             with open(path, 'r') as f:
                 fields = f.read().strip().split(" ")
                 return Jiffies(user=int(fields[13]), system=int(fields[14]))
-        except IOError, ValueError:
+        except IOError as e:
+            return None
+        except ValueError as e:
             return None
 
     def rate_limit_params(self):

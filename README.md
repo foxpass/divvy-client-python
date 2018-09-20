@@ -11,8 +11,8 @@ Includes support for Twisted, if that's your jam.
 
 ## Requirements
 
-* Python version 2.7 or newer.
-* If using Twisted, you'll need the `Twisted` package.
+* Procedural client: Python version 2.7 or newer.
+* Twisted client: Python version 2.7 (does not support Python 3) and the `Twisted` package.
 
 
 ## Usage
