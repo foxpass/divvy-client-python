@@ -4,7 +4,7 @@ from twisted.internet import reactor
 from twisted.internet.defer import Deferred, succeed
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
-from twisted.internet.error import TimeoutError
+from twisted.internet.error import TimeoutError, ConnectionDone
 from twisted.internet.task import deferLater
 from twisted.python import log
 from twisted.python.failure import Failure
@@ -15,7 +15,7 @@ from divvy.protocol import Translator
 
 
 translator = Translator()
-log.startLogging(sys.stdout)
+# log.startLogging(sys.stdout)
 
 
 class DivvyClient(object):
@@ -127,18 +127,20 @@ class DivvyFactory(ReconnectingClientFactory):
         self.deferredResponses.append(d)
         return d
 
-    def _onConnectionFail(self, reason):
-        d = self.connection
-        self.connection = Deferred()
-        log.debug("connection failure: {}", reason )
-        d.errBack(reason)
-    
     def clientConnectionLost(self, connector, reason):
-        self._onConnectionFail(reason)
-        ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
+        if isinstance(reason, ConnectionDone):
+            assert not self.deferredResponses
+        else:
+            log.msg("connection lost: {}", reason )
+            while self.deferredResponses:
+                d = self.deferredResponses.pop(0)
+                d.errback(reason)
 
     def clientConnectionFailed(self, connector, reason):
-        self._onConnectionFail(reason)
+        log.msg("connection failed: {}", reason )
+        d = self.connection
+        self.connection = Deferred()
+        d.errback(reason)
         ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
 
 
