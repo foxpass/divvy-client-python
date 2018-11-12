@@ -1,10 +1,12 @@
-from twisted.logger import Logger
-from twisted.internet import reactor, succeed
-from twisted.internet.defer import Deferred
+import sys
+
+from twisted.internet import reactor
+from twisted.internet.defer import Deferred, succeed
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 from twisted.internet.error import TimeoutError
 from twisted.internet.task import deferLater
+from twisted.python import log
 from twisted.python.failure import Failure
 from twisted.protocols.basic import LineOnlyReceiver
 from twisted.protocols.policies import TimeoutMixin
@@ -13,7 +15,8 @@ from divvy.protocol import Translator
 
 
 translator = Translator()
-log = Logger()
+log.startLogging(sys.stdout)
+
 
 class DivvyClient(object):
     def __init__(self, host, port, timeout=1.0, encoding='utf-8'):
@@ -64,42 +67,7 @@ class DivvyClient(object):
         factory = DivvyFactory( self.encoding )
         reactor.connectTCP( self.host, self.port, factory, self.timeout )
         return factory
-
      
-class DivvyFactory(ReconnectingClientFactory):
-    """Handle the connection
-
-    - Reconnect if connection drops
-    - Produce DivvyProtocol instances on connection
-    """
-    
-    def __init__(self, encoding):
-        self.encoding = encoding
-        self.connection = Deferred()
-        self.deferredResponses = list()
-
-    def checkRateLimit(hit_args):
-        def makeRequest(protocol):
-           return protocol.checkRateLimit(**hit_args)
-        self.connection.addCallback(makeRequest)
-        d = Deferred()
-        self.deferredResponses.append(d)
-        return d
-
-    def _onConnectionFail(self, reason):
-        d = self.connection
-        self.connection = Deferred()
-        log.debug("connection failure: {}", reason )
-        d.errBack(reason)
-    
-    def clientConnectionLost(self, connector, reason):
-        self._onConnectionFail(reason)
-        ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
-
-    def clientConnectionFailed(self, connector, reason):
-        self._onConnectionFail(reason)
-        ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
-
 
 class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
     """
@@ -120,9 +88,10 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
         TimeoutMixin.timeoutConnection(self)
         self.factory.connection.errback(TimeoutError())
 
-    def checkRateLimit(self, deferredResponse, **kwargs):
+    def checkRateLimit(self, **kwargs):
         assert self.connected
         line = self.translator.build_hit(**kwargs).strip()
+        log.msg("tx:", line)
         self.sendLine(line)
         self.setTimeout(self.timeout)
         return self
@@ -135,6 +104,42 @@ class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
             deferred.callback(response)
         except Exception as e:
             deferred.errback(e)
+
+
+class DivvyFactory(ReconnectingClientFactory):
+    """Handle the connection
+
+    - Reconnect if connection drops
+    - Produce DivvyProtocol instances on connection
+    """
+    protocol = DivvyProtocol
+    
+    def __init__(self, encoding):
+        self.encoding = encoding
+        self.connection = Deferred()
+        self.deferredResponses = list()
+
+    def checkRateLimit(self, hit_args):
+        def makeRequest(protocol):
+           return protocol.checkRateLimit(**hit_args)
+        self.connection.addCallback(makeRequest)
+        d = Deferred()
+        self.deferredResponses.append(d)
+        return d
+
+    def _onConnectionFail(self, reason):
+        d = self.connection
+        self.connection = Deferred()
+        log.debug("connection failure: {}", reason )
+        d.errBack(reason)
+    
+    def clientConnectionLost(self, connector, reason):
+        self._onConnectionFail(reason)
+        ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
+
+    def clientConnectionFailed(self, connector, reason):
+        self._onConnectionFail(reason)
+        ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
 
 
 __all__ = ["DivvyClient"]
