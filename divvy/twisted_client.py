@@ -1,4 +1,5 @@
 import sys
+from collections import deque
 
 from twisted.internet import reactor
 from twisted.internet.defer import Deferred, succeed
@@ -117,7 +118,7 @@ class DivvyFactory(ReconnectingClientFactory):
     def __init__(self, encoding):
         self.encoding = encoding
         self.connection = Deferred()
-        self.deferredResponses = list()
+        self.deferredResponses = deque()
 
     def checkRateLimit(self, hit_args):
         def makeRequest(protocol):
@@ -133,7 +134,7 @@ class DivvyFactory(ReconnectingClientFactory):
         else:
             log.msg("connection lost: {}", reason )
             while self.deferredResponses:
-                d = self.deferredResponses.pop(0)
+                d = self.deferredResponses.popleft()
                 d.errback(reason)
 
     def clientConnectionFailed(self, connector, reason):
