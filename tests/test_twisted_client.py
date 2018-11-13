@@ -10,7 +10,7 @@ class DivvyProtocolTest(TestCase):
    
     def setUp(self):
         self.transport = proto_helpers.StringTransport()
-        self.factory = DivvyFactory(None)
+        self.factory = DivvyFactory()
         self.protocol = self.factory.buildProtocol(('127.0.0.1', 0))
         self.protocol.makeConnection(self.transport)
         self.translator = Translator()

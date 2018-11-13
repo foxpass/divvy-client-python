@@ -1,3 +1,4 @@
+import os
 import sys
 from collections import deque
 
@@ -16,7 +17,8 @@ from divvy.protocol import Translator
 
 
 translator = Translator()
-# log.startLogging(sys.stdout)
+if os.getenv("DEBUG") == "1":
+    log.startLogging(sys.stdout)
 
 
 class DivvyClient(object):
@@ -65,43 +67,32 @@ class DivvyClient(object):
     def _makeConnection(self):
         """Return existing connection or create one
         """
-        factory = DivvyFactory( self.encoding )
-        reactor.connectTCP( self.host, self.port, factory, self.timeout )
+        factory = DivvyFactory(self.timeout, self.encoding)
+        reactor.connectTCP(self.host, self.port, factory, self.timeout)
         return factory
      
 
-class DivvyProtocol(LineOnlyReceiver, TimeoutMixin, object):
+class DivvyProtocol(LineOnlyReceiver):
     """
     Twisted handler for network communication with a Divvy server.
     """
 
     delimiter = "\n"
 
-    def __init__(self, timeout=1.0, encoding='utf-8'):
-        super(DivvyProtocol, self).__init__()
-        self.timeout = timeout
-        self.translator = Translator(encoding)
-
     def connectionMade(self):
         self.factory.connection.callback(self)
 
-    def timeoutConnection(self):
-        TimeoutMixin.timeoutConnection(self)
-        self.factory.connection.errback(TimeoutError())
-
     def checkRateLimit(self, **kwargs):
         assert self.connected
-        line = self.translator.build_hit(**kwargs).strip()
+        line = self.factory.translator.build_hit(**kwargs).strip()
         log.msg("tx:", line)
         self.sendLine(line)
-        self.setTimeout(self.timeout)
         return self
 
     def lineReceived(self, line):
-        self.setTimeout(None)
-        deferred = self.factory.deferredResponses.pop()
+        deferred = self.factory.deferredResponses.popleft()
         try:
-            response = self.translator.parse_reply(line)
+            response = self.factory.translator.parse_reply(line)
             deferred.callback(response)
         except Exception as e:
             deferred.errback(e)
@@ -115,18 +106,31 @@ class DivvyFactory(ReconnectingClientFactory):
     """
     protocol = DivvyProtocol
     
-    def __init__(self, encoding):
-        self.encoding = encoding
+    def __init__(self, timeout=1.0, encoding='utf-8'):
+        self.timeout = timeout
+        self.translator = Translator(encoding)
         self.connection = Deferred()
         self.deferredResponses = deque()
 
     def checkRateLimit(self, hit_args):
         def makeRequest(protocol):
-           return protocol.checkRateLimit(**hit_args)
+            return protocol.checkRateLimit(**hit_args)
         self.connection.addCallback(makeRequest)
+        return self.newDeferredResponse()
+
+    def newDeferredResponse(self):
         d = Deferred()
+        d.addTimeout(self.timeout, reactor)
+        d.addErrback(self.cleanupOnTimeout, d)
         self.deferredResponses.append(d)
         return d
+
+    def cleanupOnTimeout(self, err, d):
+        if isinstance(err, TimeoutError):
+            log.msg("request timeout", e)
+            # O(n) worst case, O(1) if all timeouts are the same
+            self.deferredResponses.remove(d)
+        return err
 
     def clientConnectionLost(self, connector, reason):
         if isinstance(reason, ConnectionDone):
