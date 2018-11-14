@@ -57,6 +57,9 @@ class DivvyClient(object):
         connection = self._getConnection()
         return connection.checkRateLimit(hit_args)
 
+    def close(self):
+        self.connection.close()
+
     def _getConnection(self):
         """Return existing connection or create one
         """
@@ -90,6 +93,7 @@ class DivvyProtocol(LineOnlyReceiver):
         return self
 
     def lineReceived(self, line):
+        log.msg("rx: ", line)
         deferred = self.factory.deferredResponses.popleft()
         try:
             response = self.factory.translator.parse_reply(line)
@@ -111,10 +115,13 @@ class DivvyFactory(ReconnectingClientFactory):
         self.translator = Translator(encoding)
         self.connection = Deferred()
         self.deferredResponses = deque()
+        self.transport = None
+        self.running = True
 
     def checkRateLimit(self, hit_args):
-        def makeRequest(protocol):
-            return protocol.checkRateLimit(**hit_args)
+        def makeRequest(divvyProtocol):
+            self.transport = divvyProtocol.transport
+            return divvyProtocol.checkRateLimit(**hit_args)
         self.connection.addCallback(makeRequest)
         return self.newDeferredResponse()
 
@@ -132,21 +139,33 @@ class DivvyFactory(ReconnectingClientFactory):
             self.deferredResponses.remove(d)
         return err
 
+    def close(self):
+        self.running = False
+        self.stopTrying()
+        if self.transport:
+            self.transport.loseConnection()
+    
+    def retry(self, connector, reason):
+        while self.deferredResponses:
+            d = self.deferredResponses.popleft()
+            d.errback(reason)
+        if not self.connection.called:
+            d = self.connection
+            d.errback(reason)
+        if self.running:
+            self.connection = Deferred()
+            ReconnectingClientFactory.retry(self, connector)
+
     def clientConnectionLost(self, connector, reason):
-        if isinstance(reason, ConnectionDone):
+        if reason.check(ConnectionDone) and not self.running:
             assert not self.deferredResponses
-        else:
-            log.msg("connection lost: {}", reason )
-            while self.deferredResponses:
-                d = self.deferredResponses.popleft()
-                d.errback(reason)
+        log.msg("connection lost: ", reason )
+        self.retry(connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
-        log.msg("connection failed: {}", reason )
-        d = self.connection
-        self.connection = Deferred()
-        d.errback(reason)
-        ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
+        log.msg("connection failed: ", reason )
+        self.retry(connector, reason)
+
 
 
 __all__ = ["DivvyClient"]
