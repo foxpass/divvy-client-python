@@ -8,25 +8,27 @@ from twisted.internet.protocol import Factory, ClientCreator
 from twisted.protocols.basic import LineReceiver
 from twisted.trial import unittest
 from twisted.test.proto_helpers import StringTransportWithDisconnection
-from twisted.internet.error import ConnectError, ConnectionLost
+from twisted.internet.error import ConnectError, ConnectionLost, ConnectionClosed
 from twisted.internet.defer import TimeoutError
 
 from divvy import twisted_client
 from divvy.protocol import Translator
-
-log.startLogging(sys.stdout)
 
 
 class DivvyServerProtocol(LineReceiver):
     delimiter = "\n"
     
     def connectionMade(self):
-        self.factory.clients.add(self.transport)
+        if not self.factory.running:
+            self.transport.abortConnection()
         
     def clientConnectionLost(self, _):
         self.factory.clients.remove(self.transport)
         
     def lineReceived(self, line):
+        if not self.factory.running:
+            self.transport.abortConnection()
+            return
         self.sendLine(self.factory.result.strip())
 
     
@@ -34,70 +36,103 @@ class DivvyServerFactory(Factory):
     protocol = DivvyServerProtocol
     result = b'OK true 575 60\n'
     clients = set()
+    running = True
     
     def shutdown(self):
-        for client in set(self.clients):
+        self.running = False
+        for client in self.clients:
             client.loseConnection()
 
     def crash(self):
-        for client in set(self.clients):
+        self.running = False
+        for client in self.clients:
             client.abortConnection()
+
+    def resume(self):
+        self.running = True
 
 
 class RemoteDivvyProtocolTest(unittest.TestCase):
-    def setUp(self):
-        self.factory = DivvyServerFactory()
-        self.listeningPort = reactor.listenTCP(0, self.factory, interface="127.0.0.1")
-        addr = self.listeningPort.getHost()
-        self.port = addr.port
-        self.host = addr.host
-        self.client = twisted_client.DivvyClient(self.host, self.port, timeout=1)
-        self.translator = Translator()
         
-    def tearDown(self):
-        self.client.close()
-        #self.client.connection.stopTrying()
-        #if self.client.connection.protocol.transport:
-        #    self.client.connection.protocol.transport.loseConnection()
-        return self.listeningPort.stopListening()
+    def setUp(self):
+        self.host="127.0.0.1"
+        self.factory = DivvyServerFactory()
+        self.listeningPort = reactor.listenTCP(0, self.factory, interface=self.host)
+        self.addCleanup(self.listeningPort.stopListening)
+        self.port = self.listeningPort.getHost().port
+        self.translator = Translator()
+        self.client = None
 
-    def testSimpleSuccesfullRequest(self):
+    def tearDown(self):
+        if self.client:
+            self.client.disconnect()
+        self.listeningPort.stopListening
+        reactor.disconnectAll()
+        for p in reactor.getDelayedCalls():
+            p.cancel()
+            
+    def _getClientConnection(self):
+        self.client = twisted_client.DivvyClient(self.host, self.port, timeout=1.0)
+        return self.client.connection.deferred
+
+    def _makeRequest(self, d):
         response = self.translator.parse_reply(self.factory.result)
-        d = self.client.check_rate_limit()
+        d.addCallback(lambda _: self.client.check_rate_limit())
         d.addCallback(self.assertEqual, response)
         return d
+
+    def _pause(self, _, duration):
+        return task.deferLater(reactor, duration, lambda: None)
     
-    def testServerCrash(self):
-        d = self.testSimpleSuccesfullRequest()
+    def testConnectionMade(self):
+        d = self._getClientConnection()
+        d.addCallback(lambda _: self.client.disconnect())
+        return d
+
+    def testSimpleRequest(self):
+        d = self._getClientConnection()
+        self._makeRequest(d)
+        return d
+    
+    def testMultipleRequests(self):
+        response = self.translator.parse_reply(self.factory.result)
+        d = self._getClientConnection()
+        for _ in range(1000):
+            d.addCallback(lambda _: self.client.check_rate_limit())
+            d.addCallback(self.assertEqual, response)
+        return d
+    
+    def testConnectionLost(self):
+        d = self._getClientConnection()
         d.addCallback(lambda _: self.factory.crash())
         d.addCallback(lambda _: self.client.check_rate_limit())
-        self.assertFailure(d, ConnectionLost)
+        d.addCallback(lambda _: self.client.check_rate_limit())
+        d.addTimeout(0.01, reactor)
+        self.assertFailure(d, ConnectionClosed)
         return d
             
-    def testCrashRecovery(self):
-        d = self.testServerCrash()
-        d.addErrback(lambda _: task.deferLater(reactor, 1, lambda: None))
-        d.addCallback(lambda _: self.testSimpleSuccesfullRequest())
-        d.addErrback(lambda _: task.deferLater(reactor, 4, lambda: None))
-        d.addCallback(lambda _: self.testSimpleSuccesfullRequest())
+    def testReconnectionOnConnectionLost(self):
+        d = self.testConnectionLost()
+        d.addCallback(lambda _: self.factory.resume())
+        d.addCallback(lambda _: self.client.connection.deferred)
+        self._makeRequest(d)
         return d
-            
+    
     def testServerShutdown(self):
-        d = self.testSimpleSuccesfullRequest()
+        d = self.testSimpleRequest()
         d.addCallback(lambda _: self.factory.shutdown())
         d.addCallback(lambda _: self.listeningPort.stopListening())
         d.addCallback(lambda _: self.client.check_rate_limit())
-        return self.assertFailure(d, ConnectionLost)
+        d.addTimeout(0.01, reactor)
+        return self.assertFailure(d, ConnectionClosed)
             
-    def testServerResume(self):
-        def restartListeningCb(_):
+    def testReconnectionOnServerResume(self):
+        def resume(_):
             self.listeningPort = reactor.listenTCP(self.port, self.factory, interface=self.host)
-            
+            self.factory.resume()
+            return self.client.connection.deferred
         d = self.testServerShutdown()
-        d.addCallback(restartListeningCb)
-        d.addErrback(lambda _: task.deferLater(reactor, 1, lambda: None))
-        d.addCallback(lambda _: self.testSimpleSuccesfullRequest())
-        d.addErrback(lambda _: task.deferLater(reactor, 4, lambda: None))
-        d.addCallback(lambda _: self.testSimpleSuccesfullRequest())
+        d.addCallback(resume)
+        self._makeRequest(d)
         return d
             
