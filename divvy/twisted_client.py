@@ -31,15 +31,25 @@ class DivvyClient(object):
         self.timeout = timeout
         self.encoding = encoding
         self.connection = None
-        self.connect()
+        # this may be a unwanted side effect for a constructor
+        # it is kept anyway to maintain the existing behavior without
+        # changing the api
+        self.connect() 
 
     def connect(self):
+        """Connect to the server.
+        disconnect and reconnect if connection already exists
+
+        :return: deferred twisted protocol instance on connection made
+        """
         if self.connection:
             self.disconnect()
         self.connection = self._makeConnection()
         return self.connection.deferred
 
     def disconnect(self):
+        """Disconnect cleanly
+        """
         if self.connection:
             self.connection.close()
             self.connection = None
@@ -76,8 +86,6 @@ class DivvyClient(object):
             return d
 
     def _makeConnection(self):
-        """Return existing connection or create one
-        """
         factory = DivvyFactory(self.timeout, self.encoding)
         reactor.connectTCP(self.host, self.port, factory, self.timeout)
         return factory
@@ -128,15 +136,10 @@ class DivvyFactory(ReconnectingClientFactory):
         self.addr = None
 
     def buildProtocol(self, addr):
+        self.resetDelay()
         self.addr = addr
-        # self.divvyProtocol = None
-        self.deferred.addCallback(self.onConnectionMade)
         self.divvyProtocol = ReconnectingClientFactory.buildProtocol(self, addr)
         return self.divvyProtocol
-
-    def onConnectionMade(self, _):
-        log.msg("connection made")
-        self.resetDelay()
         
     def checkRateLimit(self, hit_args):
         if self.divvyProtocol is None:
