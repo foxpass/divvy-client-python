@@ -3,7 +3,7 @@ import sys
 from twisted.python import log
 from twisted.internet import reactor
 from twisted.internet import task
-from twisted.internet.defer import maybeDeferred
+from twisted.internet.defer import Deferred, maybeDeferred, succeed
 from twisted.internet.protocol import Factory, ClientCreator
 from twisted.protocols.basic import LineReceiver
 from twisted.trial import unittest
@@ -81,7 +81,7 @@ class RemoteDivvyProtocolTest(unittest.TestCase):
         self.client = twisted_client.DivvyClient(self.host, self.port, timeout=1.0)
         return self.client.connection.deferred
 
-    def _makeRequest(self, d):
+    def _addRequest(self, d):
         """Make a request and check if the response is correct
         """
         response = self.translator.parse_reply(self.factory.result)
@@ -103,7 +103,7 @@ class RemoteDivvyProtocolTest(unittest.TestCase):
         """Connect, send request and check response
         """
         d = self._getClientConnection()
-        self._makeRequest(d)
+        self._addRequest(d)
         return d
     
     def testMultipleRequests(self):
@@ -133,7 +133,7 @@ class RemoteDivvyProtocolTest(unittest.TestCase):
         d = self.testConnectionLost()
         d.addCallback(lambda _: self.factory.resume())
         d.addCallback(lambda _: self.client.connection.deferred)
-        self._makeRequest(d)
+        self._addRequest(d)
         return d
     
     def testServerShutdown(self):
@@ -155,6 +155,16 @@ class RemoteDivvyProtocolTest(unittest.TestCase):
             return self.client.connection.deferred
         d = self.testServerShutdown()
         d.addCallback(resume)
-        self._makeRequest(d)
+        self._addRequest(d)
         return d
+
+    def testSecondRequestAfterReconnection(self):
+        d = self.testReconnectionOnServerResume()
+        def cb(_):
+            d.addTimeout(0.01, reactor)
+        for _ in range(10):
+            d.addCallback(cb) 
+            self._addRequest(d)
+        return d
+
             
