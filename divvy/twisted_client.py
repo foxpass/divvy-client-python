@@ -143,11 +143,17 @@ class DivvyFactory(ReconnectingClientFactory):
         
     def checkRateLimit(self, hit_args):
         if self.divvyProtocol is None:
+            # fail immediatelly if not connected
             return fail(ConnectionLost("on checkRateLimit"))
         self.divvyProtocol.checkRateLimit(**hit_args)
         return self.newDeferredResponse()
 
     def newDeferredResponse(self):
+        """Make a lifetime limited response and save it in a FIFO queue
+        
+        Responses are associated to requests based only in the order
+        assuming the server send reponses in the same order as it receive requests
+        """
         d = Deferred()
         d.addTimeout(self.timeout, reactor)
         d.addErrback(self.cleanupOnTimeout, d)
@@ -155,6 +161,8 @@ class DivvyFactory(ReconnectingClientFactory):
         return d
 
     def cleanupOnTimeout(self, err, d):
+        """Called when a deferred response timeouts to remove it from the FIFO queue
+        """
         if isinstance(err, TimeoutError):
             log.msg("request timeout", e)
             # O(n) worst case, O(1) if all timeouts are the same
@@ -164,22 +172,28 @@ class DivvyFactory(ReconnectingClientFactory):
     def close(self, *_):
         log.msg("client connection closed properly")
         self.running = False
-        self.stopTrying()
+        self.stopTrying()  # cancel possible reconnection delayed call
         if self.divvyProtocol:
             self.divvyProtocol.transport.loseConnection()
     
     def retry(self, connector, reason):
+        # notify client of connection failure 
         if not self.deferred.called:
             self.deferred.errback(reason)
         self.deferred = Deferred()
+
+        # cleanup all pending responses 
         while self.deferredResponses:
             d = self.deferredResponses.popleft()
             d.errback(reason)
+
+        # retry if required
         if self.running:
             ReconnectingClientFactory.retry(self, connector)
 
     def clientConnectionLost(self, connector, reason):
         if reason.check(ConnectionDone) and not self.running:
+            # shall not have pending responses on regular disconnection
             assert not self.deferredResponses
         log.msg("connection lost: ", reason )
         self.retry(connector, reason)
