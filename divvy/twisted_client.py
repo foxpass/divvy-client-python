@@ -181,6 +181,7 @@ class DivvyFactory(ReconnectingClientFactory):
         if not self.deferred.called:
             self.deferred.errback(reason)
         self.deferred = Deferred()
+        self.divvyProtocol = None
 
         # cleanup all pending responses 
         while self.deferredResponses:
