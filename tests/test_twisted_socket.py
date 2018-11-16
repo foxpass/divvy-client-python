@@ -119,7 +119,7 @@ class RemoteDivvyProtocolTest(unittest.TestCase):
     def testConnectionLost(self):
         """Check immediate failure if connection is down
         """
-        d = self._getClientConnection()
+        d = self.testSimpleRequest()
         d.addCallback(lambda _: self.factory.crash())
         d.addCallback(lambda _: self.client.check_rate_limit())
         d.addTimeout(0.01, reactor)
@@ -159,10 +159,10 @@ class RemoteDivvyProtocolTest(unittest.TestCase):
         return d
 
     def testSecondRequestAfterReconnection(self):
-        d = self.testReconnectionOnServerResume()
+        d = self.testReconnectionOnConnectionLost()
         def cb(_):
             d.addTimeout(0.01, reactor)
-        for _ in range(10):
+        for _ in range(3):
             d.addCallback(cb) 
             self._addRequest(d)
         return d
