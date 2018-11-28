@@ -8,6 +8,7 @@ from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 from twisted.internet.error import TimeoutError, ConnectionDone, ConnectionLost
 from twisted.internet.task import deferLater
+from twisted.logger import Logger
 from twisted.python import log
 from twisted.python.failure import Failure
 from twisted.protocols.basic import LineOnlyReceiver
@@ -17,11 +18,10 @@ from divvy.protocol import Translator
 
 
 translator = Translator()
-if os.getenv("DEBUG") == "1":
-    log.startLogging(sys.stdout)
-
 
 class DivvyClient(object):
+    log = Logger()
+
     def __init__(self, host, port, timeout=1.0, encoding='utf-8'):
         """
         Configures a client that can speak to a Divvy rate limiting server.
@@ -92,11 +92,12 @@ class DivvyClient(object):
      
 
 class DivvyProtocol(LineOnlyReceiver):
+    log = Logger()
     """
     Twisted handler for network communication with a Divvy server.
     """
 
-    delimiter = "\n"
+    delimiter = b'\n'
 
     def connectionMade(self):
         self.factory.deferred.callback(self)
@@ -104,12 +105,12 @@ class DivvyProtocol(LineOnlyReceiver):
     def checkRateLimit(self, **kwargs):
         assert self.connected
         line = self.factory.translator.build_hit(**kwargs).strip()
-        log.msg("tx:", line)
+        # self.log.debug("tx: {line}", line=line)
         self.sendLine(line)
         return self
 
     def lineReceived(self, line):
-        log.msg("rx: ", line)
+        # self.log.debug("rx: {line}", line=line)
         deferred = self.factory.deferredResponses.popleft()
         try:
             response = self.factory.translator.parse_reply(line)
@@ -119,6 +120,8 @@ class DivvyProtocol(LineOnlyReceiver):
 
 
 class DivvyFactory(ReconnectingClientFactory):
+    log = Logger()
+
     """Handle the connection
 
     - Reconnect if connection drops
@@ -164,13 +167,13 @@ class DivvyFactory(ReconnectingClientFactory):
         """Called when a deferred response timeouts to remove it from the FIFO queue
         """
         if isinstance(err, TimeoutError):
-            log.msg("request timeout", e)
+            self.log.error("request timeout {err}", err=err)
             # O(n) worst case, O(1) if all timeouts are the same
             self.deferredResponses.remove(d)
         return err
 
     def close(self, *_):
-        log.msg("client connection closed properly")
+        # self.log.debug("client connection closed properly")
         self.running = False
         self.stopTrying()  # cancel possible reconnection delayed call
         if self.divvyProtocol:
@@ -196,11 +199,11 @@ class DivvyFactory(ReconnectingClientFactory):
         if reason.check(ConnectionDone) and not self.running:
             # shall not have pending responses on regular disconnection
             assert not self.deferredResponses
-        log.msg("connection lost: ", reason )
+        self.log.info("connection lost: {reason}", reason=reason )
         self.retry(connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
-        log.msg("connection failed: ", reason )
+        self.log.error("connection failed: {reason}", reason=reason )
         self.retry(connector, reason)
 
 
