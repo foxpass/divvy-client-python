@@ -19,7 +19,7 @@ Response = namedtuple(
 
 
 class Translator(object):
-    STRING_REGEXP = re.compile('^[^"\\s]+$')
+    STRING_REGEXP = re.compile(r'^[^"\n]+$')
     RESPONSE_REGEXP = re.compile('^OK (true|false) (-?\\d+) (-?\\d+)$')
     ERROR_REGEXP = re.compile('^ERR (unknown|unknown-command) "?([^"]+)"?$')
 
