@@ -1,15 +1,23 @@
 from argparse import ArgumentParser
 import random
 import string
+import sys
 
 from twisted.internet import reactor
 from twisted.internet.defer import Deferred
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
-from twisted.internet.task import deferLater
+from twisted.internet.task import deferLater, LoopingCall
 from twisted.python.failure import Failure
 
 from divvy import Response as DivvyResponse
 from divvy.twisted_client import DivvyClient
+
+from twisted.logger import globalLogPublisher
+from twisted.logger import textFileLogObserver
+
+output = textFileLogObserver(sys.stdout)
+
+globalLogPublisher.addObserver(output)
 
 unique_ips = 5
 request_count = unique_ips * 5
@@ -27,7 +35,9 @@ def main():
 
     global divvy_client
     divvy_client = DivvyClient(args.hostname, args.port)
-    deferLater(reactor, 0, do_example)
+    loop = LoopingCall(do_example)
+    loop.start(10, now=True)
+    # deferLater(reactor, 1, do_example)
     reactor.run()  # pylint: disable=no-member
 
 
@@ -62,9 +72,9 @@ def continue_login(response, client_ip):
 
     global response_count
     response_count += 1
-    if response_count == request_count:
-        print("*** Stopping reactor, we've handled callbacks for all checks")
-        reactor.stop()  # pylint: disable=no-member
+    #if response_count == request_count:
+    #    print("*** Stopping reactor, we've handled callbacks for all checks")
+    #    reactor.stop()  # pylint: disable=no-member
 
 
 def fail_open(reason, client_ip):

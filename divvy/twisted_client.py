@@ -2,8 +2,8 @@ import os
 import sys
 from collections import deque
 
-from twisted.internet import reactor
-from twisted.internet.defer import Deferred, succeed, fail
+from twisted.internet import defer, reactor
+from twisted.internet.defer import Deferred
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 from twisted.internet.error import TimeoutError, ConnectionDone, ConnectionLost
@@ -30,40 +30,20 @@ class DivvyClient(object):
         self.port = port
         self.timeout = timeout
         self.encoding = encoding
-        self.connection = None
+        self.connected = False
+        self.factory = DivvyFactory(self, self.timeout, self.encoding, debug_mode)
+        reactor.connectTCP(self.host, self.port, self.factory)
         self.debug_mode = debug_mode
-        # this may be a unwanted side effect for a constructor
-        # it is kept anyway to maintain the existing behavior without
-        # changing the api
-        self.connect() 
 
     def connect(self):
-        """Connect to the server.
-        disconnect and reconnect if connection already exists
-
-        :return: deferred twisted protocol instance on connection made
-        """
-        if self.connection:
-            self.disconnect()
-        self.connection = self._makeConnection()
-        if self.debug_mode:
-            self.log.debug('DivvyClient: {msg}', msg='Connecting to server')
-        return self.connection.deferred
+        pass
 
     def disconnect(self):
-        """Disconnect cleanly
-        """
-        if self.connection:
-            self.connection.close()
-            self.connection = None
-            if self.debug_mode:
-                self.log.debug('DivvyClient: {msg}', msg='Disconnected')
+        pass
 
     def check_rate_limit(self, timeout=None, **hit_args):
         """
-        Perform a check-and-decrement of quota. This will establish a new
-        connection for each request, because connection pooling and reuse is
-        so freakin' complicated in Twisted. :(
+        Perform a check-and-decrement of quota.
 
         Args:
              **kwargs: Zero or more key-value pairs to specify the operation
@@ -81,23 +61,18 @@ class DivvyClient(object):
                     next_reset_seconds: time, in seconds, until credit next
                         resets.
         """
-        assert self.connection, "client disconnected"
-        if timeout is None:
-            return self.connection.checkRateLimit(hit_args)
-        else:
-            d = self.connection.deferred
-            d.addCallback(self.connection.checkRateLimit, hit_args)
-            d.addTimeout(timeout)
-            return d
+        if not self.connected:
+            # TODO: if not connected, wait `timeout` seconds for the socket to be connected,
+            # (e.g. factory.connection_made_deferred is triggered) and then call
+            # checkRateLimit (look into defer.chainDeferred())
+            return defer.fail(ConnectionLost("Not yet connected"))
 
-    def _makeConnection(self):
-        factory = DivvyFactory(self.timeout, self.encoding, self.debug_mode)
-        reactor.connectTCP(self.host, self.port, factory, self.timeout)
-        return factory
-     
+        return self.factory.checkRateLimit(hit_args)
+
 
 class DivvyProtocol(LineOnlyReceiver):
     log = Logger(__name__)
+    count = 0
     """
     Twisted handler for network communication with a Divvy server.
     """
@@ -105,10 +80,16 @@ class DivvyProtocol(LineOnlyReceiver):
     delimiter = b'\n'
 
     def connectionMade(self):
-        self.factory.deferred.callback(self)
+        self.log.info("Protocol.connectionMade")
 
     def checkRateLimit(self, **kwargs):
         assert self.connected
+        self.count = self.count + 1
+        if self.count > 50:
+            self.count = 0
+            self.transport.loseConnection()
+            self.log.info("loseConnection()")
+
         line = self.factory.translator.build_hit(**kwargs).strip()
         if self.debug_mode:
             self.log.debug("DivvyClient: Sent {line}", line=line)
@@ -136,10 +117,11 @@ class DivvyFactory(ReconnectingClientFactory):
     """
     protocol = DivvyProtocol
     
-    def __init__(self, timeout=1.0, encoding='utf-8', debug_mode=False):
+    def __init__(self, divvy_client, timeout=1.0, encoding='utf-8', debug_mode=False):
+        self.divvy_client = divvy_client
         self.timeout = timeout
         self.translator = Translator(encoding)
-        self.deferred = Deferred()
+        self.connection_made_deferred = Deferred()
         self.deferredResponses = deque()
         self.divvyProtocol = None
         self.running = True
@@ -147,16 +129,19 @@ class DivvyFactory(ReconnectingClientFactory):
         self.debug_mode = debug_mode
 
     def buildProtocol(self, addr):
+        self.log.info("Connected")
         self.resetDelay()
         self.addr = addr
         self.divvyProtocol = ReconnectingClientFactory.buildProtocol(self, addr)
         self.divvyProtocol.debug_mode = self.debug_mode
+        self.divvy_client.connected = True
+        self.connection_made_deferred.callback(True)
         return self.divvyProtocol
         
     def checkRateLimit(self, hit_args):
         if self.divvyProtocol is None:
             # fail immediately if not connected
-            return fail(ConnectionLost("on checkRateLimit"))
+            return defer.fail(ConnectionLost("on checkRateLimit"))
         if self.debug_mode:
             self.log.debug("DivvyClient: Checking ratelimit {hit_args}", hit_args=hit_args)
         self.divvyProtocol.checkRateLimit(**hit_args)
@@ -191,10 +176,11 @@ class DivvyFactory(ReconnectingClientFactory):
             self.divvyProtocol.transport.loseConnection()
     
     def retry(self, connector, reason):
+        self.log.info("retry()")
         # notify client of connection failure 
-        if not self.deferred.called:
-            self.deferred.errback(reason)
-        self.deferred = Deferred()
+        #if not self.deferred.called:
+        #    self.deferred.errback(reason)
+        self.connection_made_deferred = Deferred()
         self.divvyProtocol = None
 
         # cleanup all pending responses 
@@ -206,7 +192,11 @@ class DivvyFactory(ReconnectingClientFactory):
         if self.running:
             ReconnectingClientFactory.retry(self, connector)
 
+    def startedConnecting(self, connector):
+        self.log.info('Started to connect.')
+
     def clientConnectionLost(self, connector, reason):
+        self.divvy_client.connected = False
         if reason.check(ConnectionDone) and not self.running:
             # shall not have pending responses on regular disconnection
             assert not self.deferredResponses
