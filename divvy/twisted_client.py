@@ -90,10 +90,8 @@ class DivvyProtocol(LineOnlyReceiver):
         assert self.connected
         self.count = self.count + 1
         if self.count > self.max_count:
-            self.log.info("current count: {}, max count: {}".format(self.count, self.max_count))
             self.count = 0
             self.transport.loseConnection()
-            self.log.info("loseConnection(), {}".format(self.count))
 
         line = self.factory.translator.build_hit(**kwargs).strip()
         if self.debug_mode:
@@ -135,7 +133,6 @@ class DivvyFactory(ReconnectingClientFactory):
         self.count_before_reconnect = count_before_reconnect
 
     def buildProtocol(self, addr):
-        self.log.info("Connected")
         self.resetDelay()
         self.addr = addr
         self.divvyProtocol = ReconnectingClientFactory.buildProtocol(self, addr)
@@ -183,7 +180,6 @@ class DivvyFactory(ReconnectingClientFactory):
             self.divvyProtocol.transport.loseConnection()
 
     def retry(self, connector, reason):
-        self.log.info("retry()")
         # notify client of connection failure
         self.connection_made_deferred = Deferred()
         self.divvyProtocol = None
