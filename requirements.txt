@@ -1,6 +1,6 @@
 # Required for the Twisted client, obviously, but not for the procedural one.
 
-Twisted==22.10.0
+Twisted==23.10.0
 
 
 # These packages are only used for building and running tests, not for using
